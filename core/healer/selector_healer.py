@@ -21,31 +21,39 @@ import time
 import re
 from typing import Optional
 
+from core.healer._base import HealerBase
 
-class SelectorHealer:
+
+class SelectorHealer(HealerBase):
     """选择器多级降级自愈"""
 
     # 降级链：每个级别一个 (名称, 定位函数)
     FALLBACK_CHAIN = [
         ("placeholder", lambda page, hint: page.get_by_placeholder(hint)),
         ("label", lambda page, hint: page.get_by_label(hint)),
-        ("aria-label", lambda page, hint:
-            page.locator(f"[aria-label='{hint}']")),
-        ("visible+substring", lambda page, hint:
-            page.locator(
-                "input:visible, textarea:visible, "
-                ".el-input__inner:visible"
-            ).filter(has_text=hint).first),
-        ("placeholder-substring", lambda page, hint:
-            page.locator(
-                f"input[placeholder*='{hint}'], "
-                f"textarea[placeholder*='{hint}']"
-            ).first),
-        ("input-any", lambda page, hint:
-            page.locator(
-                "input, textarea, .el-input__inner, "
-                ".el-textarea__inner"
-            ).filter(has_text=hint).first),
+        ("aria-label", lambda page, hint: page.locator(f"[aria-label='{hint}']")),
+        (
+            "visible+substring",
+            lambda page, hint: page.locator(
+                "input:visible, textarea:visible, .el-input__inner:visible"
+            )
+            .filter(has_text=hint)
+            .first,
+        ),
+        (
+            "placeholder-substring",
+            lambda page, hint: page.locator(
+                f"input[placeholder*='{hint}'], textarea[placeholder*='{hint}']"
+            ).first,
+        ),
+        (
+            "input-any",
+            lambda page, hint: page.locator(
+                "input, textarea, .el-input__inner, .el-textarea__inner"
+            )
+            .filter(has_text=hint)
+            .first,
+        ),
     ]
 
     def __init__(self):
@@ -54,9 +62,9 @@ class SelectorHealer:
         # 历史可用选择器缓存：{hint: (level, locator_type)}
         self._hint_cache = {}
 
-    def locate(self, page, hint: str,
-               preferred_type: str = None,
-               timeout: int = 3000) -> Optional[object]:
+    def locate(
+        self, page, hint: str, preferred_type: str = None, timeout: int = 3000
+    ) -> Optional[object]:
         """多级降级定位元素
 
         Args:
@@ -90,14 +98,14 @@ class SelectorHealer:
                     self._hint_cache[hint] = (level, name)
                     self._log(f"✅ 选择器命中 [level={level} {name}]: {hint}")
                     return el.first
-            except Exception:
+            except Exception as e:
+                self._log(f"选择器 level={level} {name} 异常: {e}", "warning")
                 continue
 
         self._log(f"❌ 选择器全部降级失败: {hint}")
         return None
 
-    def fill(self, page, hint: str, value: str,
-             preferred_type: str = None) -> bool:
+    def fill(self, page, hint: str, value: str, preferred_type: str = None) -> bool:
         """定位并填充，返回是否成功"""
         el = self.locate(page, hint, preferred_type)
         if el is None:
@@ -112,9 +120,9 @@ class SelectorHealer:
             self._log(f"⚠️ 填充失败: {hint} value={value} err={e}")
             return False
 
-    def click(self, page, hint: str,
-              preferred_type: str = None,
-              force: bool = True) -> bool:
+    def click(
+        self, page, hint: str, preferred_type: str = None, force: bool = True
+    ) -> bool:
         """定位并点击，返回是否成功"""
         el = self.locate(page, hint, preferred_type)
         if el is None:
@@ -126,22 +134,20 @@ class SelectorHealer:
             self._log(f"⚠️ 点击失败: {hint} err={e}")
             return False
 
-    def get_value(self, page, hint: str,
-                  preferred_type: str = None) -> Optional[str]:
+    def get_value(self, page, hint: str, preferred_type: str = None) -> Optional[str]:
         """定位并获取值，返回 None 表示失败"""
         el = self.locate(page, hint, preferred_type)
         if el is None:
             return None
         try:
             return el.input_value()
-        except Exception:
+        except Exception as e:
+            self._log(f"input_value获取失败: {e}", "warning")
             try:
                 return el.text_content()
-            except Exception:
+            except Exception as e2:
+                self._log(f"text_content获取也失败: {e2}", "warning")
                 return None
-
-    def _log(self, msg: str):
-        print(f"  [SelectorHealer] {msg}")
 
     def stats(self) -> dict:
         """返回命中统计"""

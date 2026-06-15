@@ -19,22 +19,30 @@ StateHealer — 页面状态自愈
 
 import time
 
+from core.healer._base import HealerBase
 
-class StateHealer:
+
+class StateHealer(HealerBase):
     """页面状态检测与恢复"""
 
     STATE_PATTERNS = {
-        "list":    ["List", "list", "clist", "elist",
-                    "alist", "deviceList", "tag/list",
-                    "eDeviceList", "cDeviceList"],
-        "create":  ["Edit?type=create", "?type=create",
-                    "type=create"],
-        "edit":    ["Edit?type=edit", "?type=edit",
-                    "type=edit"],
-        "detail":  ["Detail", "detail", "View", "view"],
-        "blank":   ["about:blank"],
-        "login":   ["login", "Login", "#/login"],
-        "404":     ["404", "notfound", "not_found"],
+        "list": [
+            "List",
+            "list",
+            "clist",
+            "elist",
+            "alist",
+            "deviceList",
+            "tag/list",
+            "eDeviceList",
+            "cDeviceList",
+        ],
+        "create": ["Edit?type=create", "?type=create", "type=create"],
+        "edit": ["Edit?type=edit", "?type=edit", "type=edit"],
+        "detail": ["Detail", "detail", "View", "view"],
+        "blank": ["about:blank"],
+        "login": ["login", "Login", "#/login"],
+        "404": ["404", "notfound", "not_found"],
     }
 
     def __init__(self):
@@ -53,13 +61,12 @@ class StateHealer:
             title = page.title().lower()
             if "404" in title or "not found" in title:
                 return "404"
-        except Exception:
-            pass
+        except Exception as e:
+            self._log(f"获取页面标题异常: {e}", "warning")
 
         return "unknown"
 
-    def ensure_state(self, page, target_url: str,
-                     max_retries: int = 3) -> bool:
+    def ensure_state(self, page, target_url: str, max_retries: int = 3) -> bool:
         """确保页面处于目标状态，偏差时自愈
 
         Args:
@@ -72,9 +79,7 @@ class StateHealer:
         """
         for attempt in range(max_retries):
             current_state = self.detect_state(page)
-            state_info = (
-                f"[state={current_state}] "
-                f"url={page.url[:80]}...")
+            state_info = f"[state={current_state}] url={page.url[:80]}..."
 
             # 检查是否已匹配
             if target_url in page.url:
@@ -100,11 +105,9 @@ class StateHealer:
                 needs_nav = True
 
             if needs_nav:
-                self._log(f"🔄 状态自愈 #{attempt+1}: {reason}")
+                self._log(f"🔄 状态自愈 #{attempt + 1}: {reason}")
                 try:
-                    page.goto(target_url,
-                              wait_until="domcontentloaded",
-                              timeout=15000)
+                    page.goto(target_url, wait_until="domcontentloaded", timeout=15000)
                     time.sleep(2)
                     self._stats["healed"] += 1
                     # 导航后重新检测
@@ -115,24 +118,21 @@ class StateHealer:
                     continue
             else:
                 # 在某个已知页面但和目标不匹配
-                self._log(
-                    f"ℹ️ 当前状态={current_state}, "
-                    f"非目标, 导航中...")
+                self._log(f"ℹ️ 当前状态={current_state}, 非目标, 导航中...")
                 try:
-                    page.goto(target_url,
-                              wait_until="domcontentloaded",
-                              timeout=15000)
+                    page.goto(target_url, wait_until="domcontentloaded", timeout=15000)
                     time.sleep(2)
                     if target_url in page.url:
                         return True
-                except Exception:
+                except Exception as e:
+                    self._log(f"非目标页面导航失败: {e}", "warning")
                     continue
 
         return target_url in page.url
 
-    def heal_between_scenes(self, page, report,
-                            expected_url: str,
-                            scene_name: str = "") -> bool:
+    def heal_between_scenes(
+        self, page, report, expected_url: str, scene_name: str = ""
+    ) -> bool:
         """场景衔接自愈
 
         场景A结束时可能停在详情页/编辑页，
@@ -147,12 +147,12 @@ class StateHealer:
         self._log(
             f"🔄 场景'{scene_name}'衔接自愈: "
             f"当前={current_state}({page.url[:60]}...), "
-            f"期望={expected_url[:60]}...")
+            f"期望={expected_url[:60]}..."
+        )
 
         # 强行导航到目标
         try:
-            page.goto(expected_url,
-                      wait_until="domcontentloaded")
+            page.goto(expected_url, wait_until="domcontentloaded")
             time.sleep(2)
 
             if expected_url in page.url:
@@ -161,16 +161,11 @@ class StateHealer:
                 return True
             else:
                 # 可能被重定向了
-                self._log(
-                    f"  ⚠️ 导航后URL不匹配: "
-                    f"{page.url[:60]}...")
+                self._log(f"  ⚠️ 导航后URL不匹配: {page.url[:60]}...")
                 return False
         except Exception as e:
             self._log(f"  ❌ 场景衔接恢复失败: {e}")
             return False
-
-    def _log(self, msg: str):
-        print(f"  [StateHealer] {msg}")
 
     def stats(self) -> dict:
         return dict(self._stats)

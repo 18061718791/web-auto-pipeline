@@ -21,21 +21,33 @@ SaveHealer — 保存操作自愈
 import time
 from typing import Optional, Callable
 
+from core.healer._base import HealerBase
 
-class SaveHealer:
+
+class SaveHealer(HealerBase):
     """保存操作自愈"""
 
     def __init__(self):
-        self._stats = {"ok": 0, "fail": 0, "retry_ok": 0,
-                       "popper_closed": 0, "form_fixed": 0}
+        self._stats = {
+            "ok": 0,
+            "fail": 0,
+            "retry_ok": 0,
+            "popper_closed": 0,
+            "form_fixed": 0,
+        }
 
-    def save_and_verify(self, page, report, step_name: str,
-                        btn_text: str = "保存",
-                        db_verify_fn: Callable = None,
-                        db_args: list = None,
-                        expected_url: str = None,
-                        max_retries: int = 2,
-                        timeout: int = 15) -> bool:
+    def save_and_verify(
+        self,
+        page,
+        report,
+        step_name: str,
+        btn_text: str = "保存",
+        db_verify_fn: Callable = None,
+        db_args: list = None,
+        expected_url: str = None,
+        max_retries: int = 2,
+        timeout: int = 15,
+    ) -> bool:
         """保存 + 三重确认 + 自愈重试
 
         Args:
@@ -67,27 +79,37 @@ class SaveHealer:
             btn = self._find_button(page, btn_text)
             if btn is None or btn.count() == 0:
                 # 降级：找包含文本的任意 button
-                btn = page.locator(f"button").filter(
-                    has_text=btn_text).first
+                btn = page.locator(f"button").filter(has_text=btn_text).first
 
             if btn.count() == 0:
-                report.assertion(
-                    f"{step_name}: 未找到保存按钮", False, btn_text)
+                report.assertion(f"{step_name}: 未找到保存按钮", False, btn_text)
                 self._stats["fail"] += 1
                 return False
 
             # ── Step 3: 注册 API 监听器（在 click 前注册） ──
             save_detected = {
-                "api": False, "url_changed": False,
-                "toast": False, "db_ok": False,
-                "api_status": 0, "api_url": ""
+                "api": False,
+                "url_changed": False,
+                "toast": False,
+                "db_ok": False,
+                "api_status": 0,
+                "api_url": "",
             }
 
             def _on_response(response):
                 url_lower = response.url.lower()
-                if any(kw in url_lower
-                       for kw in ["save", "add", "insert", "edit",
-                                   "update", "create", "import"]):
+                if any(
+                    kw in url_lower
+                    for kw in [
+                        "save",
+                        "add",
+                        "insert",
+                        "edit",
+                        "update",
+                        "create",
+                        "import",
+                    ]
+                ):
                     status = response.status
                     if 200 <= status < 300:
                         save_detected["api"] = True
@@ -103,7 +125,8 @@ class SaveHealer:
                 try:
                     btn.click(force=True)
                     click_ok = True
-                except Exception:
+                except Exception as e:
+                    self._log(f"force点击失败: {e}", "warning")
                     # JS 兜底
                     try:
                         page.evaluate(f"""
@@ -111,8 +134,8 @@ class SaveHealer:
                             ?.click()
                         """)
                         click_ok = True
-                    except Exception:
-                        pass
+                    except Exception as e2:
+                        self._log(f"JS点击兜底也失败: {e2}", "warning")
 
             if not click_ok:
                 if attempt < max_retries:
@@ -129,28 +152,26 @@ class SaveHealer:
 
                 # 5b. 成功 toast
                 try:
-                    if page.locator(
-                            ".el-message--success").count() > 0:
+                    if page.locator(".el-message--success").count() > 0:
                         save_detected["toast"] = True
-                except Exception:
-                    pass
+                except Exception as e:
+                    self._log(f"toast检测异常: {e}", "warning")
 
                 # 5c. 错误 toast（快速失败）
                 try:
-                    err_msgs = page.locator(
-                        ".el-message--error").all()
+                    err_msgs = page.locator(".el-message--error").all()
                     for em in err_msgs:
                         txt = em.text_content().strip()
                         if txt and len(txt) > 3:
                             self._log(f"  ⚠️ 保存后出现错误: {txt}")
                             # 唯一约束冲突
-                            if any(kw in txt for kw in
-                                   ["已被使用", "唯一", "duplicate",
-                                    "unique"]):
-                                self._heal_unique_constraint(
-                                    page, txt)
-                except Exception:
-                    pass
+                            if any(
+                                kw in txt
+                                for kw in ["已被使用", "唯一", "duplicate", "unique"]
+                            ):
+                                self._heal_unique_constraint(page, txt)
+                except Exception as e:
+                    self._log(f"错误toast检测异常: {e}", "warning")
 
                 # 5d. DB 直查
                 if db_verify_fn and db_args:
@@ -158,8 +179,33 @@ class SaveHealer:
                         result = db_verify_fn(*db_args)
                         if result:
                             save_detected["db_ok"] = True
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        self._log(f"DB直查异常: {e}", "warning")
+
+                # 5c. 错误 toast（快速失败）
+                try:
+                    err_msgs = page.locator(".el-message--error").all()
+                    for em in err_msgs:
+                        txt = em.text_content().strip()
+                        if txt and len(txt) > 3:
+                            self._log(f"  ⚠️ 保存后出现错误: {txt}")
+                            # 唯一约束冲突
+                            if any(
+                                kw in txt
+                                for kw in ["已被使用", "唯一", "duplicate", "unique"]
+                            ):
+                                self._heal_unique_constraint(page, txt)
+                except Exception as e:
+                    self._log(f"错误toast检测异常: {e}", "warning")
+
+                # 5d. DB 直查
+                if db_verify_fn and db_args:
+                    try:
+                        result = db_verify_fn(*db_args)
+                        if result:
+                            save_detected["db_ok"] = True
+                    except Exception as e:
+                        self._log(f"DB直查异常: {e}", "warning")
 
                 # 任一信号确认即成功
                 if any(save_detected.values()):
@@ -173,9 +219,9 @@ class SaveHealer:
                     f"API={save_detected['api']} "
                     f"URL={save_detected['url_changed']} "
                     f"toast={save_detected['toast']} "
-                    f"DB={save_detected['db_ok']}")
-                report.assertion(
-                    f"{step_name} 保存成功", True, signal_str)
+                    f"DB={save_detected['db_ok']}"
+                )
+                report.assertion(f"{step_name} 保存成功", True, signal_str)
                 self._stats["ok"] += 1
                 if attempt > 1:
                     self._stats["retry_ok"] += 1
@@ -188,30 +234,43 @@ class SaveHealer:
                 try:
                     page.keyboard.press("Escape")
                     self._stats["popper_closed"] += 1
-                except Exception:
-                    pass
+                except Exception as e:
+                    self._log(f"关闭popper失败: {e}", "warning")
                 time.sleep(1)
 
                 # 检查表单错误
                 try:
-                    form_errs = page.locator(
-                        ".el-form-item__error").all()
+                    form_errs = page.locator(".el-form-item__error").all()
                     for fe in form_errs:
                         txt = fe.text_content().strip()
                         if txt:
                             self._log(f"  📋 表单错误: {txt}")
                             if "IP" in txt or "MAC" in txt:
-                                self._heal_ip_mac(
-                                    page, fe)
+                                self._heal_ip_mac(page, fe)
+                                break
+                except Exception as e:
+                    self._log(f"表单错误检测异常: {e}", "warning")
+                time.sleep(1)
+
+                # 检查表单错误
+                try:
+                    form_errs = page.locator(".el-form-item__error").all()
+                    for fe in form_errs:
+                        txt = fe.text_content().strip()
+                        if txt:
+                            self._log(f"  📋 表单错误: {txt}")
+                            if "IP" in txt or "MAC" in txt:
+                                self._heal_ip_mac(page, fe)
                                 break
                 except Exception:
                     pass
 
         # 全部重试失败
         report.assertion(
-            f"{step_name} 保存失败"
-            f"（已重试{max_retries}次）",
-            False, f"最终URL={page.url}")
+            f"{step_name} 保存失败（已重试{max_retries}次）",
+            False,
+            f"最终URL={page.url}",
+        )
         self._stats["fail"] += 1
         return False
 
@@ -231,19 +290,26 @@ class SaveHealer:
                 self._stats["popper_closed"] += 1
                 self._log("  🔄 保存前关闭 popper")
                 time.sleep(0.3)
-        except Exception:
-            pass
+        except Exception as e:
+            self._log(f"保存前关闭popper异常: {e}", "warning")
 
         # 2. 检查已有表单错误（不阻断）
         try:
-            form_errs = page.locator(
-                ".el-form-item__error").all()
+            form_errs = page.locator(".el-form-item__error").all()
             for fe in form_errs:
                 txt = fe.text_content().strip()
                 if txt:
-                    report.assertion(
-                        f"{step_name} 表单错误(保存前)",
-                        False, txt)
+                    report.assertion(f"{step_name} 表单错误(保存前)", False, txt)
+        except Exception as e:
+            self._log(f"表单错误检查异常: {e}", "warning")
+
+        # 2. 检查已有表单错误（不阻断）
+        try:
+            form_errs = page.locator(".el-form-item__error").all()
+            for fe in form_errs:
+                txt = fe.text_content().strip()
+                if txt:
+                    report.assertion(f"{step_name} 表单错误(保存前)", False, txt)
         except Exception:
             pass
 
@@ -263,23 +329,28 @@ class SaveHealer:
                 btn = page.locator(sel).first
                 if btn.count() > 0:
                     return btn
-            except Exception:
+            except Exception as e:
+                self._log(f"选择器异常 ({sel}): {e}", "warning")
                 continue
         return None
 
     def _click_save_btn(self, page, btn) -> bool:
         """点击保存按钮（多种方式）"""
-        for click_fn in [
-            lambda: btn.click(),
-            lambda: btn.click(force=True),
-            lambda: btn.dispatchEvent("click"),
-            lambda: page.evaluate(
-                f"document.querySelector('{btn}')?.click()"),
-        ]:
+        methods = ["click", "force_click", "dispatchEvent", "js_eval"]
+        for i, click_fn in enumerate(
+            [
+                lambda: btn.click(),
+                lambda: btn.click(force=True),
+                lambda: btn.dispatchEvent("click"),
+                lambda: page.evaluate(f"document.querySelector('{btn}')?.click()"),
+            ]
+        ):
             try:
                 click_fn()
+                self._log(f"点击方式 '{methods[i]}' 成功")
                 return True
-            except Exception:
+            except Exception as e:
+                self._log(f"点击方式 '{methods[i]}' 失败: {e}", "warning")
                 continue
         return False
 
@@ -296,8 +367,7 @@ class SaveHealer:
         try:
             # 找相邻输入框
             parent = err_el.locator("xpath=..")
-            inp = parent.locator(
-                "input, .el-input__inner").first
+            inp = parent.locator("input, .el-input__inner").first
             if inp.count() > 0:
                 if "IP" in err_text:
                     inp.fill("10.20.30.40")
@@ -307,11 +377,8 @@ class SaveHealer:
                     inp.fill("00-1A-2B-00-00-01")
                     self._stats["form_fixed"] += 1
                     self._log("  ✅ MAC 字段已自动修正")
-        except Exception:
-            pass
-
-    def _log(self, msg: str):
-        print(f"  [SaveHealer] {msg}")
+        except Exception as e:
+            self._log(f"IP/MAC自动修正失败: {e}", "warning")
 
     def stats(self) -> dict:
         return dict(self._stats)

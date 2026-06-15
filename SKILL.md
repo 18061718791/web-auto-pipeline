@@ -41,11 +41,15 @@ triggers:
   - 运行时治愈
   - 保存自愈
 allowed-tools:
-  - terminal
-  - read_file
-  - write_file
-  - patch
-  - delegate_task
+  - read
+  - write
+  - edit
+  - glob
+  - grep
+  - question
+  - bash
+  - task
+  - webfetch
   - browser_navigate
   - browser_snapshot
   - browser_click

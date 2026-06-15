@@ -21,28 +21,30 @@ AssertHealer — 断言自愈（DB 字段类型自动检测）
 
 from typing import Callable, Optional, Any
 
+from core.healer._base import HealerBase
 
-class AssertHealer:
+
+class AssertHealer(HealerBase):
     """DB 断言自愈 — 自动匹配字段类型"""
 
     # Python 类型 → 数据类型的映射
     TYPE_MAP = {
-        "boolean":           "bool",
-        "bool":              "bool",
-        "integer":           "int",
-        "smallint":          "int",
-        "bigint":            "int",
-        "numeric":           "float",
-        "double precision":  "float",
-        "real":              "float",
+        "boolean": "bool",
+        "bool": "bool",
+        "integer": "int",
+        "smallint": "int",
+        "bigint": "int",
+        "numeric": "float",
+        "double precision": "float",
+        "real": "float",
         "character varying": "str",
-        "character":         "str",
-        "text":              "str",
-        "varchar":           "str",
-        "timestamp":         "datetime",
-        "date":              "date",
-        "json":              "json",
-        "jsonb":             "json",
+        "character": "str",
+        "text": "str",
+        "varchar": "str",
+        "timestamp": "datetime",
+        "date": "date",
+        "json": "json",
+        "jsonb": "json",
     }
 
     def __init__(self, db_connection_fn: Callable):
@@ -54,19 +56,21 @@ class AssertHealer:
         self._type_cache = {}
         self._stats = {"hits": 0, "misses": 0}
 
-    def get_column_type(self, table: str,
-                        column: str) -> Optional[str]:
+    def get_column_type(self, table: str, column: str) -> Optional[str]:
         """获取字段数据类型（缓存式）"""
         key = f"{table}.{column}"
         if key not in self._type_cache:
             try:
                 conn = self._db_fn()
                 cur = conn.cursor()
-                cur.execute("""
+                cur.execute(
+                    """
                     SELECT data_type
                     FROM information_schema.columns
                     WHERE table_name = %s AND column_name = %s
-                """, (table, column))
+                """,
+                    (table, column),
+                )
                 row = cur.fetchone()
                 cur.close()
                 conn.close()
@@ -76,18 +80,22 @@ class AssertHealer:
                     self._type_cache[key] = mapped
                 else:
                     self._type_cache[key] = "unknown"
-                    self._log(
-                        f"⚠️ 列 {key} 在 information_schema 中未找到")
+                    self._log(f"⚠️ 列 {key} 在 information_schema 中未找到")
             except Exception as e:
                 self._type_cache[key] = "error"
                 self._log(f"❌ 查询列类型失败: {e}")
 
         return self._type_cache[key]
 
-    def assert_db_value(self, report, desc: str,
-                        table: str, column: str,
-                        actual_value: Any,
-                        expected: Any) -> bool:
+    def assert_db_value(
+        self,
+        report,
+        desc: str,
+        table: str,
+        column: str,
+        actual_value: Any,
+        expected: Any,
+    ) -> bool:
         """自动适配类型的 DB 断言
 
         Args:
@@ -110,8 +118,7 @@ class AssertHealer:
             if isinstance(expected, bool):
                 result = actual_value is expected
             else:
-                result = actual_value is True if expected else \
-                    actual_value is False
+                result = actual_value is True if expected else actual_value is False
 
         elif col_type in ("int", "integer", "smallint", "bigint"):
             try:
@@ -127,17 +134,17 @@ class AssertHealer:
 
         elif col_type == "float":
             try:
-                result = abs(float(actual_value)
-                             - float(expected)) < 0.0001
+                result = abs(float(actual_value) - float(expected)) < 0.0001
             except (ValueError, TypeError):
                 result = False
 
         elif col_type == "json":
             import json
+
             try:
-                result = json.dumps(
-                    actual_value, sort_keys=True
-                ) == json.dumps(expected, sort_keys=True)
+                result = json.dumps(actual_value, sort_keys=True) == json.dumps(
+                    expected, sort_keys=True
+                )
             except Exception:
                 result = str(actual_value) == str(expected)
 
@@ -146,17 +153,13 @@ class AssertHealer:
             result = str(actual_value) == str(expected)
 
         # 记录到报告
-        detail = (
-            f"type={col_type}, "
-            f"actual={actual_value}, "
-            f"expected={expected}")
+        detail = f"type={col_type}, actual={actual_value}, expected={expected}"
         report.assertion(desc, result, detail)
 
         if not result:
             self._log(
-                f"❌ 断言失败: {desc} "
-                f"[{col_type}] "
-                f"期望={expected}, 实际={actual_value}")
+                f"❌ 断言失败: {desc} [{col_type}] 期望={expected}, 实际={actual_value}"
+            )
         return result
 
     def probe_table(self, table: str) -> list[dict]:
@@ -165,20 +168,25 @@ class AssertHealer:
         try:
             conn = self._db_fn()
             cur = conn.cursor()
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT column_name, data_type, is_nullable,
                        column_default
                 FROM information_schema.columns
                 WHERE table_name = %s
                 ORDER BY ordinal_position
-            """, (table,))
+            """,
+                (table,),
+            )
             for col in cur.fetchall():
-                rows.append({
-                    "column": col[0],
-                    "type": col[1],
-                    "nullable": col[2],
-                    "default": col[3],
-                })
+                rows.append(
+                    {
+                        "column": col[0],
+                        "type": col[1],
+                        "nullable": col[2],
+                        "default": col[3],
+                    }
+                )
             cur.close()
             conn.close()
         except Exception as e:
@@ -190,15 +198,13 @@ class AssertHealer:
         cols = self.probe_table(table)
         print(f"\n  [AssertHealer] 表结构: {table}")
         print(f"  {'列名':25s} {'类型':15s} {'可空':6s} {'默认值'}")
-        print(f"  {'-'*55}")
+        print(f"  {'-' * 55}")
         for col in cols:
             print(
                 f"  {col['column']:25s} {col['type']:15s} "
-                f"{col['nullable']:6s} {col['default'] or '-':s}")
+                f"{col['nullable']:6s} {col['default'] or '-':s}"
+            )
         print()
-
-    def _log(self, msg: str):
-        print(f"  [AssertHealer] {msg}")
 
     def stats(self) -> dict:
         return dict(self._stats)

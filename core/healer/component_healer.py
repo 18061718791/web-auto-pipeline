@@ -20,20 +20,24 @@ ComponentHealer — 组件交互自愈
 import time
 from typing import Optional
 
+from core.healer._base import HealerBase
 
-class ComponentHealer:
+
+class ComponentHealer(HealerBase):
     """组件交互自愈（el-autocomplete / el-select / el-cascader）"""
 
     def __init__(self):
-        self._stats = {"autocomplete": {"ok": 0, "fail": 0},
-                       "select": {"ok": 0, "fail": 0},
-                       "cascader": {"ok": 0, "fail": 0}}
+        self._stats = {
+            "autocomplete": {"ok": 0, "fail": 0},
+            "select": {"ok": 0, "fail": 0},
+            "cascader": {"ok": 0, "fail": 0},
+        }
 
     # ── el-autocomplete ──────────────────────────────────
 
-    def autocomplete_select(self, page, input_hint: str,
-                            target_text: str,
-                            debounce: float = 3.0) -> bool:
+    def autocomplete_select(
+        self, page, input_hint: str, target_text: str, debounce: float = 3.0
+    ) -> bool:
         """el-autocomplete 选择：fill → 等debounce → 点选项 → 验证 → 关闭popper
 
         降级链：
@@ -76,8 +80,8 @@ class ComponentHealer:
                 # 关闭 popper
                 try:
                     page.keyboard.press("Escape")
-                except Exception:
-                    pass
+                except Exception as e:
+                    self._log(f"关闭popper失败: {e}", "warning")
                 self._log(f"✅ autocomplete 命中 [{name}]: {target_text}")
                 self._stats["autocomplete"]["ok"] += 1
                 return True
@@ -85,16 +89,17 @@ class ComponentHealer:
         # 全部失败 — 尝试关闭 popper 清理现场
         try:
             page.keyboard.press("Escape")
-        except Exception:
-            pass
+        except Exception as e:
+            self._log(f"关闭popper失败: {e}", "warning")
         self._log(f"❌ autocomplete 全部降级失败: {target_text}")
         self._stats["autocomplete"]["fail"] += 1
         return False
 
     def _ac_click_li(self, page, text: str):
         """方案1: 点击 .el-autocomplete__popper li"""
-        page.locator(".el-autocomplete__popper li") \
-            .filter(has_text=text).first.click(force=True)
+        page.locator(".el-autocomplete__popper li").filter(has_text=text).first.click(
+            force=True
+        )
 
     def _ac_dispatch_event(self, page, text: str):
         """方案2: JS dispatchEvent 点击"""
@@ -117,8 +122,7 @@ class ComponentHealer:
         for _ in range(10):
             time.sleep(0.2)
             page.keyboard.press("ArrowDown")
-            current_val = page.evaluate(
-                "document.activeElement?.value || ''")
+            current_val = page.evaluate("document.activeElement?.value || ''")
             if text in current_val or not current_val:
                 page.keyboard.press("Enter")
                 return
@@ -127,8 +131,7 @@ class ComponentHealer:
 
     # ── el-select ─────────────────────────────────────────
 
-    def select_option(self, page, trigger_hint: str,
-                      option_text: str) -> bool:
+    def select_option(self, page, trigger_hint: str, option_text: str) -> bool:
         """el-select 选择：打开下拉 → 选选项 → 验证
 
         降级链：
@@ -138,12 +141,10 @@ class ComponentHealer:
         """
         # Step 1: 定位 trigger
         trigger_selectors = [
-            lambda: page.get_by_role("combobox")
-                       .filter(has_text=trigger_hint).first,
+            lambda: page.get_by_role("combobox").filter(has_text=trigger_hint).first,
             lambda: page.get_by_placeholder(trigger_hint),
             lambda: page.get_by_label(trigger_hint),
-            lambda: page.locator(".el-select").filter(
-                has_text=trigger_hint).first,
+            lambda: page.locator(".el-select").filter(has_text=trigger_hint).first,
         ]
         trigger = None
         for fn in trigger_selectors:
@@ -152,7 +153,8 @@ class ComponentHealer:
                 if t.count() > 0:
                     trigger = t
                     break
-            except Exception:
+            except Exception as e:
+                self._log(f"trigger选择器异常: {e}", "warning")
                 continue
 
         if trigger is None:
@@ -162,12 +164,13 @@ class ComponentHealer:
 
         # Step 2: 打开下拉
         open_attempts = [
-            ("open: click force=True",
-             lambda: trigger.click(force=True)),
-            ("open: dispatchEvent mousedown",
-             lambda: trigger.evaluate(
-                 "el => el.dispatchEvent("
-                 "new Event('mousedown', {bubbles: true}))")),
+            ("open: click force=True", lambda: trigger.click(force=True)),
+            (
+                "open: dispatchEvent mousedown",
+                lambda: trigger.evaluate(
+                    "el => el.dispatchEvent(new Event('mousedown', {bubbles: true}))"
+                ),
+            ),
         ]
 
         opened = False
@@ -175,12 +178,16 @@ class ComponentHealer:
             try:
                 fn()
                 time.sleep(1)
-                if page.locator(
+                if (
+                    page.locator(
                         ".el-select-dropdown:not([style*='display: none'])"
-                        ).count() > 0:
+                    ).count()
+                    > 0
+                ):
                     opened = True
                     break
-            except Exception:
+            except Exception as e:
+                self._log(f"打开下拉失败 ({name}): {e}", "warning")
                 continue
 
         if not opened:
@@ -190,22 +197,27 @@ class ComponentHealer:
 
         # Step 3: 选择选项
         opt_attempts = [
-            ("select: click dropdown item force=True",
-             lambda: page.locator(".el-select-dropdown__item")
-                     .filter(has_text=option_text).first
-                     .click(force=True)),
-            ("select: JS dispatchEvent",
-             lambda: page.evaluate(f"""
+            (
+                "select: click dropdown item force=True",
+                lambda: page.locator(".el-select-dropdown__item")
+                .filter(has_text=option_text)
+                .first.click(force=True),
+            ),
+            (
+                "select: JS dispatchEvent",
+                lambda: page.evaluate(f"""
                  document.querySelectorAll(
                      '.el-select-dropdown__item').forEach(function(el) {{
                      if(el.textContent.includes('{option_text}')) {{
                          el.dispatchEvent(
                              new MouseEvent('click', {{bubbles: true}}));
                      }}
-                 }})""")),
-            ("select: keyboard ArrowDown+Enter",
-             lambda: (trigger.press("ArrowDown"),
-                      trigger.press("Enter"))),
+                 }})"""),
+            ),
+            (
+                "select: keyboard ArrowDown+Enter",
+                lambda: (trigger.press("ArrowDown"), trigger.press("Enter")),
+            ),
         ]
 
         for name, fn in opt_attempts:
@@ -215,11 +227,11 @@ class ComponentHealer:
                 # 验证：trigger 文本是否变化
                 selected = trigger.text_content() or ""
                 if option_text in selected:
-                    self._log(
-                        f"✅ select 选中 [{name}]: {option_text}")
+                    self._log(f"✅ select 选中 [{name}]: {option_text}")
                     self._stats["select"]["ok"] += 1
                     return True
-            except Exception:
+            except Exception as e:
+                self._log(f"选择选项失败 ({name}): {e}", "warning")
                 continue
 
         self._log(f"❌ select 全部降级失败: {option_text}")
@@ -228,8 +240,7 @@ class ComponentHealer:
 
     # ── el-cascader ───────────────────────────────────────
 
-    def cascader_select(self, page, trigger_hint: str,
-                        options: list[str]) -> bool:
+    def cascader_select(self, page, trigger_hint: str, options: list[str]) -> bool:
         """el-cascader 多选：展开 → 逐级勾选 checkbox → 关闭
 
         关键：必须点击 .el-checkbox 而不是节点文本，
@@ -254,29 +265,29 @@ class ComponentHealer:
         # Step 3: 逐级勾选
         for opt in options:
             try:
-                cb = page.locator(
-                    ".el-cascader-node__checkbox, "
-                    ".el-checkbox"
-                ).filter(has_text=opt).first
+                cb = (
+                    page.locator(".el-cascader-node__checkbox, .el-checkbox")
+                    .filter(has_text=opt)
+                    .first
+                )
                 if cb.count() > 0:
                     cb.click(force=True)
                     time.sleep(0.3)
                 else:
                     # 降级：点击节点文本
-                    node = page.locator(
-                        ".el-cascader-node"
-                    ).filter(has_text=opt).first
+                    node = page.locator(".el-cascader-node").filter(has_text=opt).first
                     if node.count() > 0:
                         node.click()
                         time.sleep(0.3)
-            except Exception:
+            except Exception as e:
+                self._log(f"cascader选项异常: {e}", "warning")
                 continue
 
         # Step 4: 关闭 cascader popover
         try:
             page.keyboard.press("Escape")
-        except Exception:
-            pass
+        except Exception as e:
+            self._log(f"关闭cascader失败: {e}", "warning")
 
         self._log(f"✅ cascader 选择完成: {options}")
         self._stats["cascader"]["ok"] += 1
@@ -287,15 +298,14 @@ class ComponentHealer:
     def _locate_input(self, page, hint: str) -> Optional[object]:
         """定位输入框（通用）"""
         from core.healer.selector_healer import SelectorHealer
+
         return SelectorHealer().locate(page, hint)
 
     def _get_input_value(self, page, hint: str) -> Optional[str]:
         """获取输入框当前值"""
         from core.healer.selector_healer import SelectorHealer
-        return SelectorHealer().get_value(page, hint)
 
-    def _log(self, msg: str):
-        print(f"  [ComponentHealer] {msg}")
+        return SelectorHealer().get_value(page, hint)
 
     def stats(self) -> dict:
         return dict(self._stats)

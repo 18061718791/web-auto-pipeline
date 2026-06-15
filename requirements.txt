@@ -1,2 +1,21 @@
 playwright>=1.40,<2.0
 psycopg2-binary>=2.9,<3.0
+
+# 脚本骨架生成（manifest_generator.py）
+jinja2>=3.0
+
+# HTML→PDF 文档渲染（docs/pdf_renderer.py）
+weasyprint>=60
+
+# 指标收集跨平台文件锁（scripts/metrics_collector.py）
+portalocker>=2.0
+
+# 测试（tests/）
+pytest>=7.0
+
+# ---- 可选依赖 ----
+# PPT 生成（templates/generate_ppt_template.py）
+# python-pptx>=0.6
+
+# Excel 操作（导入测试模板生成）
+# openpyxl>=3.0
