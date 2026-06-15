@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+"""
+由 manifest_generator.py + Jinja2 引擎自动生成的测试脚本骨架
+生成时间: {{ generated_at }}
+"""
+import sys, time
+from playwright.sync_api import sync_playwright
+from report_helper import TestReport
+from config import BASE_URL
+
+
+# ============ 数据库断言辅助 ============
+from config import get_db_connection
+
+
+def db_check_exists(table, by_field, by_value):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(f"SELECT * FROM {table} WHERE {by_field}=%s", (by_value,))
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    assert row is not None, f"DB断言失败: {table}.{by_field}='{by_value}' 未找到"
+    return f"DB: {table} 记录已存在 (by {by_field}={by_value})"
+
+
+def run():
+    report = TestReport("{{ suite_name }}")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=False)
+        ctx = browser.new_context(viewport={"width": 1500, "height": 900})
+        page = ctx.new_page()
+
+        try:
+{% for func in page_functions %}
+            report.scene_start("{{ func.title }}", "执行{{ func.title }}")
+{{ func.body | indent(12) }}
+            report.scene_end(True)
+{% endfor %}
+        except Exception as e:
+            print(f"异常: {e}")
+            import traceback; traceback.print_exc()
+            if report.current_scene: report.scene_end(False)
+        finally:
+            browser.close()
+
+    html_path = report.generate_html()
+    print(f"\n📋 报告: {html_path}")
+
+
+if __name__ == "__main__":
+    run()
