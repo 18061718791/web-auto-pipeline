@@ -3,6 +3,7 @@
 Platform Explorer Core v2 - 重构版
 使用ARIA菜单遍历，修复菜单发现和报告生成问题
 """
+
 import asyncio, json, logging, os, re
 from datetime import datetime
 from pathlib import Path
@@ -83,15 +84,40 @@ class PlatformExplorer:
 
         if routes:
             print(f"  从Vue Router发现 {len(routes)} 个路由")
-            origin = self.base_url.split('/jwsiot')[0]
+            origin = self.base_url.split("/jwsiot")[0]
             # 只取列表页（不包含 edit/detail/Detail/version/edit/add 的路径）
-            list_routes = [r for r in routes if not any(x in r['path'].lower() for x in ['edit', 'detail', 'version', 'add', 'instrument', 'quick', 'subdevice', 'redirect', 'login', 'register', 'develop', 'home2', 'list2', ':path'])]
+            list_routes = [
+                r
+                for r in routes
+                if not any(
+                    x in r["path"].lower()
+                    for x in [
+                        "edit",
+                        "detail",
+                        "version",
+                        "add",
+                        "instrument",
+                        "quick",
+                        "subdevice",
+                        "redirect",
+                        "login",
+                        "register",
+                        "develop",
+                        "home2",
+                        "list2",
+                        ":path",
+                    ]
+                )
+            ]
             print(f"  过滤后 {len(list_routes)} 个列表页面")
             for r in list_routes:
                 full_url = f"{origin}{r['path']}"
                 if full_url not in visit_urls:
                     visit_urls.add(full_url)
-                    discovered[full_url] = {"name": r.get('title','')[:40] or r['path'], "url": full_url}
+                    discovered[full_url] = {
+                        "name": r.get("title", "")[:40] or r["path"],
+                        "url": full_url,
+                    }
         else:
             # 方法2: 通过菜单遍历（降级方案）
             print("  Vue Router不可用，使用菜单遍历...")
@@ -117,10 +143,15 @@ class PlatformExplorer:
             """)
 
             for top_name in top_items:
-                await page.goto(self.base_url, wait_until="domcontentloaded", timeout=30000)
+                await page.goto(
+                    self.base_url, wait_until="domcontentloaded", timeout=30000
+                )
                 await page.wait_for_timeout(1500)
-                top_btn = page.locator('[role="menuitem"]').filter(has_text=top_name).first
-                if await top_btn.count() == 0: continue
+                top_btn = (
+                    page.locator('[role="menuitem"]').filter(has_text=top_name).first
+                )
+                if await top_btn.count() == 0:
+                    continue
                 await top_btn.click()
                 await page.wait_for_timeout(1000)
                 await page.evaluate("""
@@ -145,7 +176,11 @@ class PlatformExplorer:
                             if url not in visit_urls:
                                 visit_urls.add(url)
                                 discovered[url] = {"name": leaf_text[:40], "url": url}
-                            await page.goto(self.base_url, wait_until="domcontentloaded", timeout=30000)
+                            await page.goto(
+                                self.base_url,
+                                wait_until="domcontentloaded",
+                                timeout=30000,
+                            )
                             await page.wait_for_timeout(1500)
                             await top_btn.click()
                             await page.wait_for_timeout(1000)
@@ -169,7 +204,7 @@ class PlatformExplorer:
         for idx, (url, info) in enumerate(self.all_pages.items(), 1):
             print(f"  [{idx}/{len(self.all_pages)}] {info['name'][:30]}", end="")
             try:
-                result = await self._explore_page(page, url, info['name'])
+                result = await self._explore_page(page, url, info["name"])
                 info.update(result)
                 print(f" OK")
             except Exception as e:
@@ -203,7 +238,10 @@ class PlatformExplorer:
         # 文本域
         for i in range(await page.locator("textarea").count()):
             try:
-                ph = (await page.locator("textarea").nth(i).get_attribute("placeholder") or "")[:20]
+                ph = (
+                    await page.locator("textarea").nth(i).get_attribute("placeholder")
+                    or ""
+                )[:20]
                 if ph:
                     textareas.append(ph)
             except Exception as e:
@@ -212,7 +250,12 @@ class PlatformExplorer:
         # 下拉框
         for i in range(await page.get_by_role("combobox").count()):
             try:
-                lb = (await page.get_by_role("combobox").nth(i).get_attribute("aria-label") or "")[:20]
+                lb = (
+                    await page.get_by_role("combobox")
+                    .nth(i)
+                    .get_attribute("aria-label")
+                    or ""
+                )[:20]
                 if lb:
                     comboboxes.append(lb)
             except Exception as e:
@@ -284,10 +327,17 @@ class PlatformExplorer:
     async def _explore_page(self, page, url, name):
         """探索单个页面（协调函数，调用子函数收集各项信息）"""
         result = {
-            "buttons": [], "inputs": [], "tables": [], "tabs": [],
-            "comboboxes": [], "textareas": [], "checks": [],
-            "has_data": False, "data_count": 0, "data_state": "",
-            "sub_pages": []
+            "buttons": [],
+            "inputs": [],
+            "tables": [],
+            "tabs": [],
+            "comboboxes": [],
+            "textareas": [],
+            "checks": [],
+            "has_data": False,
+            "data_count": 0,
+            "data_state": "",
+            "sub_pages": [],
         }
 
         await page.goto(url, wait_until="domcontentloaded", timeout=15000)
@@ -296,13 +346,15 @@ class PlatformExplorer:
 
         # 面包屑
         try:
-            bc = await page.locator("[class*='breadcrumb'], nav[aria-label*='breadcrumb']").inner_text()
+            bc = await page.locator(
+                "[class*='breadcrumb'], nav[aria-label*='breadcrumb']"
+            ).inner_text()
             result["breadcrumb"] = bc.strip().replace("\n", " > ")[:60]
         except Exception as e:
             logger.warning(f"获取面包屑失败: {e}")
 
         # 截图
-        safe = re.sub(r'[\\/*?:"<>|]', '_', name)[:30]
+        safe = re.sub(r'[\\/*?:"<>|]', "_", name)[:30]
         await page.screenshot(path=str(self.screenshots_dir / f"{safe}.png"))
 
         # 检测组件库
@@ -351,31 +403,54 @@ class PlatformExplorer:
 
     def _analyze(self):
         print(f"\n[5/6] 数据分析")
-        empty = [(n, p.get("name",""), p.get("data_state","")) for n, p in self.all_pages.items() if "空数据" in p.get("data_state", "")]
+        empty = [
+            (n, p.get("name", ""), p.get("data_state", ""))
+            for n, p in self.all_pages.items()
+            if "空数据" in p.get("data_state", "")
+        ]
         return {
             "total_pages": len(self.all_pages),
-            "data_pages": sum(1 for p in self.all_pages.values() if "有数据" in p.get("data_state","")),
+            "data_pages": sum(
+                1
+                for p in self.all_pages.values()
+                if "有数据" in p.get("data_state", "")
+            ),
             "empty_pages": len(empty),
             "component_lib": self.component_lib,
-            "total_buttons": sum(len(p.get("buttons",[])) for p in self.all_pages.values()),
-            "total_inputs": sum(len(p.get("inputs",[])) for p in self.all_pages.values()),
-            "total_tables": sum(len(p.get("tables",[])) for p in self.all_pages.values()),
-            "total_tabs": sum(len(p.get("tabs",[])) for p in self.all_pages.values()),
-            "total_combos": sum(len(p.get("comboboxes",[])) for p in self.all_pages.values()),
-            "empty_details": empty
+            "total_buttons": sum(
+                len(p.get("buttons", [])) for p in self.all_pages.values()
+            ),
+            "total_inputs": sum(
+                len(p.get("inputs", [])) for p in self.all_pages.values()
+            ),
+            "total_tables": sum(
+                len(p.get("tables", [])) for p in self.all_pages.values()
+            ),
+            "total_tabs": sum(len(p.get("tabs", [])) for p in self.all_pages.values()),
+            "total_combos": sum(
+                len(p.get("comboboxes", [])) for p in self.all_pages.values()
+            ),
+            "empty_details": empty,
         }
 
     async def _generate_report(self, a):
         print(f"\n[6/6] 生成HTML报告")
-        pages_json = json.dumps([{
-            "name": p.get("name",""), "url": u,
-            "data_state": p.get("data_state",""),
-            "buttons": len(p.get("buttons",[])),
-            "inputs": len(p.get("inputs",[])),
-            "tables": len(p.get("tables",[])),
-            "tabs": len(p.get("tabs",[])),
-            "sub_pages": p.get("sub_pages",[])
-        } for u, p in self.all_pages.items()], ensure_ascii=False)
+        pages_json = json.dumps(
+            [
+                {
+                    "name": p.get("name", ""),
+                    "url": u,
+                    "data_state": p.get("data_state", ""),
+                    "buttons": len(p.get("buttons", [])),
+                    "inputs": len(p.get("inputs", [])),
+                    "tables": len(p.get("tables", [])),
+                    "tabs": len(p.get("tabs", [])),
+                    "sub_pages": p.get("sub_pages", []),
+                }
+                for u, p in self.all_pages.items()
+            ],
+            ensure_ascii=False,
+        )
 
         DP = a["data_pages"]
         EP = a["empty_pages"]
@@ -430,13 +505,13 @@ footer {{ text-align:center; padding:20px; color:#999; font-size:12px; }}
 <body>
 <div class="header">
     <h1>{self.platform_name} - 平台全量探索报告</h1>
-    <div class="sub">探索时间: {datetime.now().strftime('%Y-%m-%d %H:%M')} | 组件库: {a['component_lib']} | {a['total_pages']} 页面</div>
+    <div class="sub">探索时间: {datetime.now().strftime("%Y-%m-%d %H:%M")} | 组件库: {a["component_lib"]} | {a["total_pages"]} 页面</div>
 </div>
 
 <div class="stats-row">
-    <div class="stat-card"><div class="num">{a['total_pages']}</div><div class="label">总页面</div></div>
+    <div class="stat-card"><div class="num">{a["total_pages"]}</div><div class="label">总页面</div></div>
     <div class="stat-card"><div class="num">{DP}</div><div class="label">有数据</div></div>
-    <div class="stat-card"><div class="num" style="color:{'#ff4d4f' if EP>0 else '#52c41a'}">{EP}</div><div class="label">空数据</div></div>
+    <div class="stat-card"><div class="num" style="color:{"#ff4d4f" if EP > 0 else "#52c41a"}">{EP}</div><div class="label">空数据</div></div>
     <div class="stat-card"><div class="num">{TB}</div><div class="label">按钮</div></div>
     <div class="stat-card"><div class="num">{TI}</div><div class="label">输入框</div></div>
     <div class="stat-card"><div class="num">{TBL}</div><div class="label">表格</div></div>
@@ -516,7 +591,11 @@ function downloadJSON() {{
 </body>
 </html>"""
         (self.output_dir / "report.html").write_text(html, encoding="utf-8")
-        json.dump(pages_json, (self.output_dir / "explore_data.json").open("w", encoding="utf-8"), ensure_ascii=False)
+        json.dump(
+            pages_json,
+            (self.output_dir / "explore_data.json").open("w", encoding="utf-8"),
+            ensure_ascii=False,
+        )
         print(f"  HTML报告: {self.output_dir / 'report.html'}")
         print(f"  JSON数据: {self.output_dir / 'explore_data.json'}")
 
@@ -526,12 +605,20 @@ if __name__ == "__main__":
     from datetime import datetime
 
     parser = argparse.ArgumentParser(description="平台探索引擎（Platform Explorer）")
-    parser.add_argument("url", nargs="?", default="http://10.30.25.183:28080/jwsiot/overview/home",
-                        help="平台基础URL")
-    parser.add_argument("--platform-id", default="iot",
-                        help="平台标识（用于报告目录，默认: iot）")
-    parser.add_argument("--output-dir", default=None,
-                        help="输出目录（默认: docs/output/{platform_id}/explore_{ts}/）")
+    parser.add_argument(
+        "url",
+        nargs="?",
+        default=os.environ.get("PLATFORM_URL", "http://localhost:28080"),
+        help="平台基础URL（默认从 PLATFORM_URL 环境变量读取）",
+    )
+    parser.add_argument(
+        "--platform-id", default="iot", help="平台标识（用于报告目录，默认: iot）"
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="输出目录（默认: docs/output/{platform_id}/explore_{ts}/）",
+    )
     args = parser.parse_args()
 
     if args.output_dir:

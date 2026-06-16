@@ -1,10 +1,16 @@
 # References 知识库索引
 
+## 核心文档
+| 文件 | 说明 |
+|:-----|:------|
+| `SKILL_DETAIL.md` | **运营详细指南**（定位模式、断言增强、数据清理、Healer 完整文档、工具陷阱、脚本模板等） |
+| `DECISION_TREE.md` | **Agent 故障排查决策树** + 步骤清单 + 自检清单 |
+| `core-principles.md` | 11 条 MUST 级规则的完整解释 |
+| `scene-design.md` | 测试分类原则（基础功能 vs 端到端） + 场景设计规范 |
+
 ## standards/ — MUST 级规则与设计标准
 | 文件 | 说明 |
 |:-----|:------|
-| `core-principles.md` | 11 条 MUST 级规则的完整解释 |
-| `scene-design.md` | 测试分类原则（基础功能 vs 端到端） + 场景设计规范 |
 | `framework-architecture.md` | 框架架构设计 |
 | `full-report-architecture.md` | 报告系统架构 |
 | `manifest-system.md` | Page Manifest 规范 |
@@ -50,12 +56,10 @@
 | `ppt-narrative-pattern.md` | PPT 叙事结构 |
 | `skill-health-checklist.md` | Skill 健康检查清单 |
 
-## 平台特定记录（应随 platforms 目录发布）
+## 平台特定记录
 | 文件 | 所属平台 | 说明 |
 |:-----|:---------|:------|
 | `iot-device-records.md` | IoT | 设备管理记录 |
 | `iot-full-coverage-plan.md` | IoT | 全量覆盖计划 |
 | `iot-route-map.md` | IoT | 路由映射 |
 | `tckz-records.md` | TCKZ | TCKZ 平台记录 |
-
-> 平台特定文档建议迁移到对应的 platforms 仓库中管理，Skill 本身只保留通用知识。
